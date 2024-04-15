@@ -1,6 +1,8 @@
 use crate::value::{Value, ValueArr};
 use std::hint::unreachable_unchecked;
 
+const STACK_SIZE: usize = 150;
+
 pub enum OpCode {
     OpReturn,
     OpConstant,
@@ -61,7 +63,6 @@ fn disassemble_instruction(chunk: &Chunk, offset: &mut u32) {
     match instruction {
         OpReturn => *offset += print_simple_instruction("OP_RETURN", *offset),
         OpConstant => *offset += print_constant_instruction("OP_CONSTANT", *offset, chunk),
-        ConstantIdx(_) => {}
         _ => {
             println!("how tf am i matching a idx");
             unsafe { unreachable_unchecked() }
@@ -86,18 +87,44 @@ pub enum VM_Errors {
     RuntimeError,
 }
 
+struct Stack {
+    values: [Value; STACK_SIZE],
+    top: usize,
+}
+
+impl Stack {
+    fn new() -> Self {
+        return Stack {
+            values: [Value::default(); STACK_SIZE],
+            top: 0,
+        };
+    }
+
+    fn push(&mut self, value: Value) {
+        self.values[self.top] = value;
+        self.top += 1;
+    }
+
+    fn pop(&mut self) -> Value {
+        self.top -= 1;
+        return self.values[self.top];
+    }
+}
+
 pub struct VM {
     chunk: Option<Chunk>,
     ip: usize,
+    stack: Stack,
     debug: bool,
 }
 
 impl VM {
-    pub const fn new(debug: bool) -> Self {
+    pub fn new(debug: bool) -> Self {
         return VM {
             chunk: None,
             ip: 0,
             debug,
+            stack: Stack::new(),
         };
     }
 
@@ -112,17 +139,26 @@ impl VM {
             let instruction = &(self.chunk.as_ref().unwrap()).code[self.ip];
             if self.debug {
                 let data = self.chunk.as_ref().unwrap();
+                for i in 0..self.stack.top {
+                    print!("[ {} ]", self.stack.values[i]);
+                }
+                if self.stack.top > 0 {
+                    print!("\n");
+                }
                 disassemble_instruction(data, &mut (self.ip as u32))
             }
             use OpCode::*;
             match instruction {
                 OpReturn => {
+                    println!("value {}", self.stack.pop());
                     return Ok(());
                 }
                 OpConstant => {
                     let data = self.chunk.as_ref().unwrap();
                     let value = data.get_constant(self.ip as u32);
-                    println!("value {}", value)
+                    self.stack.push(value);
+                    // move ip again for constant
+                    self.ip += 1;
                 }
                 _ => {}
             }
